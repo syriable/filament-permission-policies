@@ -57,8 +57,8 @@ This package moves those decisions into declared rules:
 
 - PHP 8.4+
 - Laravel 13+
-- Filament 5
-- Filament Shield 4.3+
+- Filament 5.9+
+- Filament Shield 4.3.1+
 
 ## Installation
 
