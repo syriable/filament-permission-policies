@@ -7,6 +7,7 @@ namespace Syriable\Filament\Plugins\PermissionPolicies\Filament\Concerns;
 use BezhanSalleh\FilamentShield\Support\Utils;
 use Filament\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Grid;
@@ -61,6 +62,60 @@ trait HasPermissionPolicies
                 }
             })
             ->dehydrated(false);
+    }
+
+    /**
+     * The role's guard, offering the guards from the config file. Changing it
+     * switches the context and brings the rest of the form in line.
+     */
+    public static function getGuardFormComponent(): Select
+    {
+        $guards = PermissionPolicies::guards();
+
+        return Select::make('guard_name')
+            ->label(__('filament-shield::filament-shield.field.guard_name'))
+            ->options(fn (): array => $guards->options())
+            ->default(fn (): ?string => $guards->has(Utils::getFilamentAuthGuard())
+                ? Utils::getFilamentAuthGuard()
+                : ($guards->names()[0] ?? null))
+            ->required()
+            ->in(fn (): array => $guards->names())
+            ->live()
+            ->afterStateUpdated(fn (Select $component, Get $get, Set $set) => static::refreshPermissionFormState($component, $get, $set));
+    }
+
+    /**
+     * Brings the permission lists and "select all" in line with the role's
+     * current context. The guard field above calls it; call it from your own
+     * field's afterStateUpdated() if you build the guard field yourself.
+     *
+     * Ticks the context does not present are dropped, lists that appear for
+     * the first time on a stored role are filled from its permissions, and
+     * "select all" is recalculated.
+     */
+    public static function refreshPermissionFormState(Component $component, Get $get, Set $set): void
+    {
+        $record = $component->getRecord();
+        $stored = null;
+
+        // The raw state tells a list never shown yet (no key) from one the
+        // user cleared (an empty list); $get() reads both as empty.
+        $state = $component->getRootContainer()->getRawState();
+        $state = $state instanceof Arrayable ? $state->toArray() : $state;
+
+        foreach (static::getPermissionCheckboxListOptions(static::getPermissionCatalogFor($component)) as $name => $options) {
+            $selected = $state[$name] ?? null;
+
+            if ($selected === null && $record instanceof Model) {
+                $selected = $stored ??= static::getStoredPermissionNames($record);
+            }
+
+            $selected = is_array($selected) ? array_filter($selected, is_string(...)) : [];
+
+            $set($name, array_values(array_intersect(array_keys($options), $selected)));
+        }
+
+        static::syncSelectAllToggle($component, $get, $set);
     }
 
     /**

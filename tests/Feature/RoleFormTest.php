@@ -5,6 +5,7 @@ declare(strict_types=1);
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\CheckboxList;
+use Filament\Forms\Components\Select;
 use Livewire\Livewire;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -202,4 +203,55 @@ it("renders one resource list in Shield's simple view", function (): void {
         ->fillForm(['guard_name' => 'web'])
         ->assertFormFieldDoesNotExist(SERVICE_LIST)
         ->assertFormFieldExists('resources_tab', fn (CheckboxList $field): bool => count($field->getOptions()) === 3 * 6);
+});
+
+it('turns "select all" on when a guard change leaves every presented permission ticked', function (): void {
+    $component = Livewire::test(CreateRole::class)->fillForm(['guard_name' => 'admin']);
+
+    // Tick, under the administrator guard, everything a member role will show.
+    foreach (array_keys(RoleResource::getPermissionCheckboxListOptions(PermissionPolicies::forContext('web'))) as $name) {
+        $component->fillForm([$name => array_keys(RoleResource::getPermissionCheckboxListOptions(PermissionPolicies::forContext('admin'))[$name])]);
+    }
+
+    $component
+        ->assertSchemaStateSet(['select_all' => false])
+        ->fillForm(['guard_name' => 'web'])
+        ->assertSchemaStateSet(['select_all' => true]);
+});
+
+it('turns "select all" off when a guard change shows permissions nobody ticked', function (): void {
+    Livewire::test(CreateRole::class)
+        ->fillForm(['guard_name' => 'web'])
+        ->fillForm(['select_all' => true])
+        ->assertSchemaStateSet(['select_all' => true])
+        ->fillForm(['guard_name' => 'admin'])
+        ->assertSchemaStateSet(['select_all' => false]);
+});
+
+it('drops ticks the new guard does not present when the guard changes', function (): void {
+    Livewire::test(CreateRole::class)
+        ->fillForm(['guard_name' => 'admin'])
+        ->fillForm([SERVICE_LIST => ['View:Service', 'ForceDelete:Service']])
+        ->fillForm(['guard_name' => 'web'])
+        ->assertSchemaStateSet([SERVICE_LIST => ['View:Service']]);
+});
+
+it('fills a list that first appears on a stored role from its permissions', function (): void {
+    $role = Role::query()->create(['name' => 'member', 'guard_name' => 'web']);
+    $role->givePermissionTo(Permission::create(['name' => 'Delete:Role', 'guard_name' => 'web']));
+
+    Livewire::test(EditRole::class, ['record' => $role->getRouteKey()])
+        ->assertFormFieldDoesNotExist(ROLE_LIST)
+        ->fillForm(['guard_name' => 'admin'])
+        ->assertSchemaStateSet([ROLE_LIST => ['Delete:Role']]);
+});
+
+it('offers the configured guards on the guard field', function (): void {
+    config()->set('filament-permission-policies.guards', ['admin' => ['label' => 'Administrator'], 'web' => ['label' => 'Member']]);
+
+    Livewire::test(CreateRole::class)
+        ->assertFormFieldExists('guard_name', fn (Select $field): bool => $field->getOptions() === ['admin' => 'Administrator', 'web' => 'Member'])
+        ->fillForm(['name' => 'staff', 'guard_name' => 'api'])
+        ->call('create')
+        ->assertHasFormErrors(['guard_name']);
 });

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Syriable\Filament\Plugins\PermissionPolicies\Tests\Fixtures\Resources\Roles;
 
 use BezhanSalleh\FilamentShield\Resources\Roles\RoleResource as ShieldRoleResource;
-use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Schema;
 use Syriable\Filament\Plugins\PermissionPolicies\Filament\Concerns\HasPermissionPolicies;
@@ -21,11 +20,7 @@ final class RoleResource extends ShieldRoleResource
     {
         return $schema->components([
             TextInput::make('name')->required(),
-            Select::make('guard_name')
-                ->options(['web' => 'Member', 'admin' => 'Administrator'])
-                ->default('admin')
-                ->required()
-                ->live(),
+            self::getGuardFormComponent(),
             self::getSelectAllFormComponent(),
             self::getShieldFormComponents(),
         ]);
