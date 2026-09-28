@@ -20,6 +20,16 @@ final class PermissionPoliciesServiceProvider extends PackageServiceProvider
             ->hasConfigFile();
     }
 
+    public function packageBooted(): void
+    {
+        // Shield reads custom policy stubs from the application's
+        // stubs/filament-shield directory; publishing them there is the only
+        // way to change the policies shield:generate writes.
+        $this->publishes([
+            __DIR__.'/../stubs/filament-shield' => $this->app->basePath('stubs/filament-shield'),
+        ], 'filament-permission-policies-stubs');
+    }
+
     public function packageRegistered(): void
     {
         // Rules live for the whole application. The config file's rules are

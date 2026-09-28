@@ -4,6 +4,8 @@ All notable changes to `filament-permission-policies` are documented in this fil
 
 ## Unreleased
 
+- Policy stubs for `shield:generate` (publish tag `filament-permission-policies-stubs`): inside the panel a permission is checked as before; outside it, `allowsOutsidePanel()` also requires the user's guard to be configured and to present the permission.
+- `PermissionPolicies::allowsOutsidePanel($user, $permission)`, which only narrows `$user->can()`.
 - `getGuardFormComponent()`: a guard field built from the configured guards that refreshes the form when the guard changes.
 - `refreshPermissionFormState()`: fixes "select all" staying stale after a guard change; drops ticks the new context hides and fills newly shown lists from the stored role.
 - Config file: role guards with label, color and hide/only/allow rules, plus global rules, validated on load.

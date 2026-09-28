@@ -166,6 +166,16 @@ turns each section into rules on the registry the first time the registry is
 resolved, validating as it reads (unknown keys, kinds, guards or classes
 throw). Rules declared in code are added on top.
 
+### Generated policies
+
+Shield reads custom policy stubs only from the application's
+`stubs/filament-shield/` directory, so the package ships its stubs and
+publishes them there (`filament-permission-policies-stubs`). Generated
+abilities check `$user->can()` while Filament serves the panel, and
+`PermissionManager::allowsOutsidePanel()` elsewhere: the user's guard must be
+configured and must present the permission. The helper only narrows
+`can()`; it never grants.
+
 ### Extension points
 
 - Add a context: declare its rules. Nothing else changes.
@@ -180,7 +190,8 @@ throw). Rules declared in code are added on top.
 
 - **Authorization.** Policies and the gate stay authoritative. A hidden
   permission is never granted by this package, and a shown one is only a
-  checkbox.
+  checkbox. The one authorization helper, `allowsOutsidePanel()`, used by the
+  published policy stubs, only narrows `can()`.
 - **Role visibility in role pickers** (B8). Which roles a user may assign is an
   assignment rule of the application, not a property of the permission
   universe.

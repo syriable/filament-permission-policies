@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Syriable\Filament\Plugins\PermissionPolicies;
 
+use Illuminate\Contracts\Auth\Access\Authorizable;
 use Illuminate\Database\Eloquent\Model;
+use Spatie\Permission\Guard;
 use Syriable\Filament\Plugins\PermissionPolicies\Contracts\ContextResolver;
 use Syriable\Filament\Plugins\PermissionPolicies\Contracts\PermissionSource;
 use Syriable\Filament\Plugins\PermissionPolicies\Data\PermissionCatalog;
@@ -19,6 +21,14 @@ use Syriable\Filament\Plugins\PermissionPolicies\Data\PermissionContext;
 final class PermissionManager
 {
     private ?PermissionCatalog $universe = null;
+
+    /**
+     * Catalogs of contexts looked up by name, which carry no attributes and
+     * therefore always filter the same way within a request.
+     *
+     * @var array<string, PermissionCatalog>
+     */
+    private array $namedCatalogs = [];
 
     public function __construct(
         private readonly PermissionSource $source,
@@ -41,9 +51,40 @@ final class PermissionManager
      */
     public function forContext(PermissionContext|string $context): PermissionCatalog
     {
-        $context = is_string($context) ? PermissionContext::make($context) : $context;
+        if (is_string($context)) {
+            return $this->namedCatalogs[$context] ??= $this->evaluator->filter($this->universe(), PermissionContext::make($context));
+        }
 
         return $this->evaluator->filter($this->universe(), $context);
+    }
+
+    /**
+     * Whether a permission counts for a user outside the Filament panel: on
+     * the site, in an API, in a job. The generated policies call this when
+     * Filament is not serving a request.
+     *
+     * It only ever narrows $user->can(). The permission counts when the
+     * user's guard is one roles are configured for, that guard's role form
+     * presents the permission, and the user holds it. A permission Shield does
+     * not know about is not narrowed beyond the guard check.
+     */
+    public function allowsOutsidePanel(Model&Authorizable $user, string $permission): bool
+    {
+        $guard = Guard::getDefaultName($user);
+
+        if (! $this->guards->has($guard)) {
+            return false;
+        }
+
+        // The guard's context by name: there is no role here, only the
+        // question of whether this guard's role form could grant it.
+        $context = $this->resolveContext(['guard_name' => $guard])->name;
+
+        if ($this->universe()->contains($permission) && ! $this->forContext($context)->contains($permission)) {
+            return false;
+        }
+
+        return $user->can($permission);
     }
 
     /**

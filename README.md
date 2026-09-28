@@ -51,6 +51,7 @@ shown. You control all of it from one config file.
 - [The role form](#the-role-form)
 - [The roles table](#the-roles-table)
 - [Multiple guards](#multiple-guards)
+- [Generated policies](#generated-policies)
 - [Shield integration](#shield-integration)
 - [Extending the package](#extending-the-package)
 - [Visibility is not authorization](#visibility-is-not-authorization)
@@ -132,6 +133,14 @@ php artisan vendor:publish --tag="filament-permission-policies-config"
 ```
 
 Until you declare a rule, every role sees exactly what Shield generates.
+
+If Shield generates your policies, also publish this package's policy stubs
+and generate the policies again (see [Generated policies](#generated-policies)):
+
+```bash
+php artisan vendor:publish --tag="filament-permission-policies-stubs"
+php artisan shield:generate --all --option=policies --panel=admin
+```
 
 ### Step 3: Wire up the role resource
 
@@ -609,6 +618,76 @@ model hold roles of its own guard. For every guard you list in the config file:
    the old guard can no longer hold it. Consider disabling the guard field on
    the edit page for roles that have users.
 
+## Generated policies
+
+Shield writes a policy for every resource's model with `shield:generate`. This
+package ships its own versions of Shield's policy stubs, so those policies know
+whether they are running inside the Filament panel or elsewhere.
+
+```bash
+php artisan vendor:publish --tag="filament-permission-policies-stubs"
+```
+
+This copies four files into your application's `stubs/filament-shield/`
+directory, which is where Shield looks for custom stubs:
+
+| Stub | Used for |
+|---|---|
+| `DefaultPolicy.stub` | The policy class of a model |
+| `AuthenticatablePolicy.stub` | The policy class of the user model |
+| `SingleParamMethod.stub` | Abilities without a record: `viewAny`, `create`, … |
+| `MultiParamMethod.stub` | Abilities with a record: `view`, `update`, … |
+
+Every generated ability then looks like this:
+
+```php
+public function forceDelete(AuthUser $authUser, Service $service): bool
+{
+    return filament()->isServing()
+        ? $authUser->can('ForceDelete:Service')
+        : PermissionPolicies::allowsOutsidePanel($authUser, 'ForceDelete:Service');
+}
+```
+
+- **Inside the panel,** the permission is checked as Shield always did.
+- **Outside the panel** (the public site, an API, a queued job),
+  `allowsOutsidePanel()` counts the permission only when all three hold:
+  1. the user's guard is one of the [configured guards](#the-config-file);
+  2. that guard's role form presents the permission, per the config file's
+     rules;
+  3. the user holds the permission (`$user->can()`).
+
+The result is that a permission can only take effect for users of a guard
+whose role form could have granted it. A member (`web`) who holds
+`ForceDelete:Service`, for example from an old role or a direct database edit,
+is refused on the site if the `web` guard hides `forceDelete`. A permission
+Shield does not generate (such as one created by hand) is checked against the
+guard and `can()` only.
+
+`allowsOutsidePanel()` can only **narrow** `$user->can()`: it never allows
+something `can()` refuses. It resolves the user's guard with Spatie's
+`Guard::getDefaultName()`, so give models that use a non-default guard a
+`$guard_name` property.
+
+Existing policies are not rewritten. Run `shield:generate` again for the
+policies you want in the new style, or edit them by hand; Shield's
+`--ignore-existing-policies` option skips the ones you have customized. You
+can also edit the published stubs; `vendor:publish --force` restores the
+package's versions.
+
+You can call the same check from your own code, for example in a
+hand-written policy:
+
+```php
+use Syriable\Filament\Plugins\PermissionPolicies\Facades\PermissionPolicies;
+
+public function update(User $user, Order $order): bool
+{
+    return $user->is($order->buyer)
+        && PermissionPolicies::allowsOutsidePanel($user, 'Update:Order');
+}
+```
+
 ## Shield integration
 
 `ShieldPermissionSource` builds the universe from Shield's public API:
@@ -673,11 +752,15 @@ This package decides what a role form **presents**. It does not register a
 gate, a policy or a `before` callback, and it never grants anything.
 
 - A hidden permission still exists if Shield generated it.
-- A role that already holds a hidden permission keeps it, and is authorized
-  by it, until the role is saved; your policies decide what it means.
+- A role that already holds a hidden permission keeps it until the role is
+  saved. Whether it still takes effect is up to your policies. Policies
+  generated from this package's stubs refuse it outside the panel (see
+  [Generated policies](#generated-policies)).
 - A shown permission is only a checkbox.
 
-Keep authorization in your policies. For example, a member role holding
+The only authorization helper the package offers, `allowsOutsidePanel()`,
+narrows `$user->can()` and never widens it. Keep authorization in your
+policies. For example, a member role holding
 `Update:User` should still be refused by a `UserPolicy` that only honours
 administrators.
 
@@ -705,6 +788,16 @@ The guard field is not the package's. Use `getGuardFormComponent()`, or call
 Expected: hiding is not revoking (see
 [Visibility is not authorization](#visibility-is-not-authorization)). Saving
 the role removes permissions its context does not present.
+
+**A user is refused on the site although their role has the permission.**
+Policies generated from this package's stubs check three things outside the
+panel: the user's guard is configured in `filament-permission-policies.guards`,
+that guard's rules present the permission, and the user holds it. Check the
+first two; a model on a non-default guard also needs a `$guard_name` property.
+
+**`shield:generate` ignores the package's stubs.**
+They must be published into `stubs/filament-shield/` in your application:
+run `php artisan vendor:publish --tag="filament-permission-policies-stubs"`.
 
 **The roles table count differs from the number of rows in the database.**
 `countPresentedPermissions()` counts only what the role's context presents,
