@@ -4,6 +4,8 @@ All notable changes to `filament-permission-policies` are documented in this fil
 
 ## Unreleased
 
+- `getGuardFormComponent()`: a guard field built from the configured guards that refreshes the form when the guard changes.
+- `refreshPermissionFormState()`: fixes "select all" staying stale after a guard change; drops ticks the new context hides and fills newly shown lists from the stored role.
 - Config file: role guards with label, color and hide/only/allow rules, plus global rules, validated on load.
 - `RoleGuards` (`PermissionPolicies::guards()`): guard names, options, labels and colors for forms and tables.
 - `allowPages()` and `allowWidgets()` on policies.

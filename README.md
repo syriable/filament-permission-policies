@@ -391,6 +391,32 @@ that calls these methods render from the catalog of the role being edited:
 - "select all" ticks exactly the presented permissions;
 - Shield's tab switches, simple resource view and column settings still apply.
 
+### The guard field
+
+Use the package's guard field so the form stays in line when the guard
+changes: it offers the [configured guards](#from-the-config-file), and on
+change it drops ticks the new context does not present, fills lists that
+appear for the first time from the stored role, and recalculates
+"select all".
+
+```php
+Section::make()->schema([
+    TextInput::make('name')->required(),
+    RoleResource::getGuardFormComponent(),
+    RoleResource::getSelectAllFormComponent(),
+]),
+RoleResource::getShieldFormComponents(),
+```
+
+If you build the guard field yourself, make it `->live()` and call the same
+refresh when it changes:
+
+```php
+Select::make('guard_name')
+    ->live()
+    ->afterStateUpdated(fn (Select $component, Get $get, Set $set) => RoleResource::refreshPermissionFormState($component, $get, $set));
+```
+
 For a roles table, count what a role's context presents rather than every row
 in `role_has_permissions`:
 
