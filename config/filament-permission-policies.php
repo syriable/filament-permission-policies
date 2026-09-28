@@ -2,6 +2,19 @@
 
 declare(strict_types=1);
 
+/*
+|--------------------------------------------------------------------------
+| Filament Permission Policies
+|--------------------------------------------------------------------------
+|
+| This package is a layer on top of Filament Shield. Shield must be
+| installed and set up first (shield:setup, shield:install, shield:generate):
+| every permission listed on a role form comes from what Shield generates.
+| See https://filamentphp.com/plugins/bezhansalleh-shield and this
+| package's README.
+|
+*/
+
 return [
 
     /*

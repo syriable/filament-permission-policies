@@ -8,3 +8,4 @@ composer.local.lock
 .idea
 .vscode
 .DS_Store
+/tests/Fixtures/Policies

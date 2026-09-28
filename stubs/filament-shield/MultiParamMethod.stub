@@ -1,0 +1,7 @@
+
+    public function {{ methodName }}({{ auth_model_name }} ${{ auth_model_variable }}, {{ model_name }} ${{ model_variable }}): bool
+    {
+        return filament()->isServing()
+            ? ${{ auth_model_variable }}->can('{{ permission }}')
+            : PermissionPolicies::allowsOutsidePanel(${{ auth_model_variable }}, '{{ permission }}');
+    }
