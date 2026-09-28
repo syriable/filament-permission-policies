@@ -3,81 +3,139 @@
 Context-aware permission presentation for [Filament Shield](https://filamentphp.com/plugins/bezhansalleh-shield).
 
 Shield generates every permission your panel needs. Not every role should be
-offered all of them. A member role on the public site has no business with
-the role resource or with `forceDelete`; an administrator role needs the lot.
+offered all of them. A member role on the public site has no business with the
+role resource or with `forceDelete`; an administrator role needs the lot; an
+API role needs neither pages nor widgets.
 
-This package sits between Filament and Shield and answers one question:
+This package sits on top of Shield and answers one question:
 
 > Given this role, which resources, models and permissions should its form present?
 
 ```text
-Filament role form
-      │   renders one filtered catalog
-Permission Policies   ◄── contexts + rules
-      │   reads the universe
-Filament Shield
-      │
+Filament role form        renders one filtered catalog: sections, checkboxes, counts
+        │
+Permission Policies       guards/contexts + rules  (this package)
+        │
+Filament Shield           discovers entities, builds permission keys
+        │
 Spatie Laravel Permission ─► database
 ```
 
-Hidden permissions are removed, not disabled: no empty sections, no greyed-out
-checkboxes, and every count on the form is computed from what is shown.
+Hidden permissions are **removed**, not disabled: no empty sections, no
+greyed-out checkboxes, and every count on the form is computed from what is
+shown. You control all of it from one config file.
 
-- [Why it exists](#why-it-exists)
+> [!IMPORTANT]
+> **This package is a layer on top of Filament Shield. It does not replace it.**
+> Shield must be installed, set up and working in your panel **before** you
+> install this package. Read the
+> [Filament Shield documentation](https://filamentphp.com/plugins/bezhansalleh-shield)
+> and run its installation commands first (see
+> [Step 1](#step-1-install-and-set-up-filament-shield)). Everything this package
+> shows comes from what Shield generates; if Shield is not set up, there is
+> nothing to present.
+
+## Contents
+
+- [Requirements](#requirements)
 - [Installation](#installation)
+  - [Step 1: Install and set up Filament Shield](#step-1-install-and-set-up-filament-shield)
+  - [Step 2: Install this package](#step-2-install-this-package)
+  - [Step 3: Wire up the role resource](#step-3-wire-up-the-role-resource)
+  - [Step 4: Declare your guards and rules](#step-4-declare-your-guards-and-rules)
+- [How it works](#how-it-works)
 - [Configuration](#configuration)
 - [Contexts](#contexts)
-- [Resource rules](#resource-rules)
-- [Model rules](#model-rules)
-- [Permission rules](#permission-rules)
+- [Resource, model and permission rules](#resource-model-and-permission-rules)
 - [Rule precedence](#rule-precedence)
-- [Filament integration](#filament-integration)
+- [The role form](#the-role-form)
+- [The roles table](#the-roles-table)
+- [Multiple guards](#multiple-guards)
 - [Shield integration](#shield-integration)
 - [Extending the package](#extending-the-package)
 - [Visibility is not authorization](#visibility-is-not-authorization)
+- [Troubleshooting](#troubleshooting)
 - [Testing](#testing)
-
-## Why it exists
-
-Shield builds a permission for every policy method of every resource, and its
-role form shows all of them. Applications that manage several kinds of roles
-end up patching the role form with conditions such as "if the guard is `web`,
-hide this section". Those conditions spread across closures, disagree about
-counts, and break when the permission key format changes.
-
-This package moves those decisions into declared rules:
-
-- **Shield** stays responsible for discovering entities, building keys and
-  storing permissions. Nothing is forked or copied.
-- **This package** decides what each context presents, in one place, with a
-  documented precedence.
-- **Your policies** stay responsible for authorization.
 
 ## Requirements
 
-- PHP 8.4+
-- Laravel 13+
-- Filament 5.9+
-- Filament Shield 4.3.1+
+| | Version |
+|---|---|
+| PHP | 8.4+ |
+| Laravel | 13+ |
+| Filament | 5.9+ |
+| [Filament Shield](https://github.com/bezhanSalleh/filament-shield) | 4.3.1+ (installed **and set up**) |
+| [Spatie Laravel Permission](https://spatie.be/docs/laravel-permission) | pulled in by Shield |
 
 ## Installation
 
+### Step 1: Install and set up Filament Shield
+
+Skip this step only if Shield already works in your panel: you can open the
+Roles page, and the permissions of your resources are listed there.
+
+Otherwise, follow the
+[Filament Shield installation guide](https://filamentphp.com/plugins/bezhansalleh-shield).
+It is the reference for these commands and their options; in short:
+
 ```bash
-composer require syriable/filament-permission-policies
+composer require bezhansalleh/filament-shield
+
+# Publishes Shield's config, runs Spatie's permission migrations,
+# and checks your user model.
+php artisan shield:setup
+
+# Registers the Shield plugin on your panel.
+php artisan shield:install admin          # your panel ID
+
+# Generates the permissions (and, if you want, the policies) for every
+# resource, page and widget of the panel.
+php artisan shield:generate --all --panel=admin
+
+# Gives a user the super admin role.
+php artisan shield:super-admin --user=1 --panel=admin
 ```
 
-The service provider is discovered automatically. There is no config file and
-no migration.
+Your user model must use Spatie's `HasRoles` trait:
 
-If you have not published Shield's role resource yet, do it now; the package
-plugs into your copy of it:
+```php
+use Spatie\Permission\Traits\HasRoles;
+
+class User extends Authenticatable
+{
+    use HasRoles;
+}
+```
+
+Then publish Shield's role resource into your application. This package plugs
+into **your copy** of it:
 
 ```bash
 php artisan shield:publish
 ```
 
-Add the trait to your role resource and the page traits to its create and
-edit pages:
+> [!NOTE]
+> Re-run `php artisan shield:generate` whenever you add a resource, page or
+> widget. This package only presents permissions that Shield has generated.
+
+### Step 2: Install this package
+
+```bash
+composer require syriable/filament-permission-policies
+```
+
+The service provider is discovered automatically. There is no migration.
+Publish the config file, which is where you will declare your guards and rules:
+
+```bash
+php artisan vendor:publish --tag="filament-permission-policies-config"
+```
+
+Until you declare a rule, every role sees exactly what Shield generates.
+
+### Step 3: Wire up the role resource
+
+Add the trait to the role resource you published in Step 1:
 
 ```php
 use BezhanSalleh\FilamentShield\Resources\Roles\RoleResource as ShieldRoleResource;
@@ -86,10 +144,11 @@ use Syriable\Filament\Plugins\PermissionPolicies\Filament\Concerns\HasPermission
 class RoleResource extends ShieldRoleResource
 {
     use HasPermissionPolicies;
-
-    // ...
 }
 ```
+
+Add the page traits to its create and edit pages. They make sure a role is
+never saved with a permission its context does not present:
 
 ```php
 use BezhanSalleh\FilamentShield\Resources\Roles\Pages\CreateRole as ShieldCreateRole;
@@ -115,31 +174,88 @@ class EditRole extends ShieldEditRole
 }
 ```
 
-Until you declare a rule, every role sees exactly what Shield generates.
-
-## Configuration
-
-### From the config file
-
-Publish the config file:
-
-```bash
-php artisan vendor:publish --tag="filament-permission-policies-config"
-```
-
-List the guards roles can be created for, and what each one's role form
-hides. Nothing else is needed: forms, tables and counts follow the file.
+Finally, use the package's guard field in the role form. It lists your
+configured guards and keeps the rest of the form in line when the guard
+changes (see [The role form](#the-role-form)):
 
 ```php
-// config/filament-permission-policies.php
+public static function form(Schema $schema): Schema
+{
+    return $schema->components([
+        Section::make()
+            ->schema([
+                TextInput::make('name')->required()->maxLength(255),
+                static::getGuardFormComponent(),
+                static::getSelectAllFormComponent(),
+            ])
+            ->columns(3)
+            ->columnSpanFull(),
+        static::getShieldFormComponents(),
+    ]);
+}
+```
+
+### Step 4: Declare your guards and rules
+
+In `config/filament-permission-policies.php`, list the guards roles can be
+created for and what each one's role form hides:
+
+```php
 return [
     'guards' => [
         'admin' => [
-            'label' => 'roles.guards.admin', // translation key or plain text
+            'label' => 'Administrator',
             'color' => 'primary',
+            // No rules: administrators see everything Shield generates.
         ],
+
         'web' => [
             'label' => 'Member',
+            'color' => 'gray',
+            'hide' => [
+                'resources' => [App\Filament\Resources\Roles\RoleResource::class],
+                'actions' => ['restore', 'restoreAny', 'forceDelete', 'forceDeleteAny', 'replicate', 'reorder'],
+            ],
+        ],
+    ],
+];
+```
+
+Open the Roles page: an administrator role shows every resource and every
+ability; switching the guard to `web` removes the role resource and those six
+abilities, and the counts follow.
+
+## How it works
+
+Four ideas, in the order the package applies them:
+
+1. **The universe.** Every permission Shield generates, grouped by entity: one
+   group per resource, page and widget, plus one for custom permissions.
+2. **The context.** Who the role is for. By default a role's context is its
+   guard, so a `web` role is managed in the `web` context.
+3. **The rules.** What each context hides, allows or is limited to, from the
+   config file and from code.
+4. **The catalog.** The universe filtered by the context's rules. The form,
+   the tabs, the badges, "select all", the table counts and the save step all
+   read this one catalog, so they can never disagree.
+
+```text
+universe ─► apply the context's rules ─► catalog ─► form, counts, saving
+```
+
+## Configuration
+
+### The config file
+
+```php
+return [
+    'guards' => [
+        'admin' => [
+            'label' => 'roles.guards.admin',   // translation key or plain text
+            'color' => 'primary',              // any Filament color
+        ],
+        'web' => [
+            'label' => 'roles.guards.web',
             'color' => 'gray',
             'hide' => [
                 'resources' => [RoleResource::class],
@@ -154,90 +270,85 @@ return [
         ],
     ],
 
+    // Applied to every guard. A guard's own "allow" brings something back.
     'global' => [
-        'hide' => ['models' => [AuditLog::class]],
+        'hide' => ['models' => [App\Models\AuditLog::class]],
     ],
 ];
 ```
 
-| Section | Rule types |
+Each guard entry takes:
+
+| Key | Meaning |
 |---|---|
-| `hide` | `resources`, `pages`, `widgets`, `models`, `actions`, `permissions`, `kinds` |
-| `only` | `resources`, `models`, `actions`, `permissions` |
-| `allow` | `resources`, `pages`, `widgets`, `models`, `actions`, `permissions` |
+| `label` | A translation key or plain text. Defaults to the guard name in title case. |
+| `color` | A Filament color for the guard badge. Defaults to `gray`. |
+| `hide` | Removed from this guard's role form. |
+| `only` | When set, nothing else of that type is shown. |
+| `allow` | Shown even when the `global` section hides it. |
 
-Every guard key must exist in `config/auth.php`, class names must exist, and an
-unknown section or rule type throws `InvalidPolicyConfiguration`: a typo never
-silently shows what was meant to be hidden. An empty list is ignored. With no
-guards configured, every guard in `config/auth.php` is offered with no rules.
+And each of `hide`, `only` and `allow` takes lists of:
 
-The configured guards drive the role form and table:
+| Rule type | Values | `hide` | `only` | `allow` |
+|---|---|:-:|:-:|:-:|
+| `resources` | Resource classes | ✓ | ✓ | ✓ |
+| `pages` | Page classes | ✓ | | ✓ |
+| `widgets` | Widget classes | ✓ | | ✓ |
+| `models` | Model classes: every resource that manages them | ✓ | ✓ | ✓ |
+| `actions` | Resource abilities: `forceDelete`, `reorder`, … | ✓ | ✓ | ✓ |
+| `permissions` | Exact keys: `Delete:Order`, … | ✓ | ✓ | ✓ |
+| `kinds` | Whole tabs: `resource`, `page`, `widget`, `custom` | ✓ | | |
+
+The file is validated when it is loaded. An unknown section or rule type, a
+class that does not exist, an unknown kind, or a guard missing from
+`config/auth.php` throws `InvalidPolicyConfiguration` with the exact config
+path, so a typo never silently shows what was meant to be hidden. An empty
+list is ignored rather than read as "hide everything". With no guards
+configured, every guard in `config/auth.php` is offered, with no rules.
+
+> [!TIP]
+> If you cache your configuration in production, run `php artisan config:cache`
+> again after changing this file.
+
+### Rules in code
+
+Everything the config file does can also be written in code, usually in a
+service provider's `boot()` method. Code rules are added on top of the config
+file's:
 
 ```php
-$guards = PermissionPolicies::guards();
-
-Select::make('guard_name')->options($guards->options())->live();
-
-TextColumn::make('guard_name')
-    ->badge()
-    ->formatStateUsing(fn (string $state): string => $guards->label($state))
-    ->color(fn (string $state): string => $guards->color($state));
-
-SelectFilter::make('guard_name')->options($guards->options());
-```
-
-### From code
-
-Rules can also be declared in code, usually in a service provider's `boot()`
-method, with the `PermissionPolicies` facade. Code rules are added on top of
-the config file's:
-
-```php
+use Syriable\Filament\Plugins\PermissionPolicies\Enums\GroupKind;
 use Syriable\Filament\Plugins\PermissionPolicies\Facades\PermissionPolicies;
 
 public function boot(): void
 {
     PermissionPolicies::context('web')
         ->hideResources([RoleResource::class])
-        ->hideActions(['restore', 'restoreAny', 'forceDelete', 'forceDeleteAny', 'replicate', 'reorder']);
+        ->hideActions(['forceDelete', 'reorder']);
+
+    PermissionPolicies::global()->hideKinds([GroupKind::Widget]);
 }
 ```
 
-Rules that apply to every context go on the global policy:
-
-```php
-PermissionPolicies::global()->hideKinds([GroupKind::Widget]);
-```
-
-Every method returns the policy, so rules chain. The order you declare them in
-never changes the result (see [Rule precedence](#rule-precedence)).
+Use code for rules the config file cannot express, such as conditions (see
+[`hideWhen()`](#conditions)). Every method returns the policy, so rules chain;
+the order you declare them in never changes the result.
 
 ## Contexts
 
 A context is a name for the audience a role belongs to: `admin`, `web`,
-`seller`, `moderator`, anything. Each context has its own policy, created the
-first time you mention it:
-
-```php
-PermissionPolicies::context('seller')
-    ->onlyResources([ServiceResource::class, OrderResource::class])
-    ->hideActions(['forceDelete']);
-
-PermissionPolicies::context('moderator')
-    ->onlyActions(['viewAny', 'view', 'update']);
-```
-
-A context with no rules, such as `admin` above, presents the whole universe.
-Adding a context never requires touching the role form.
+`api`, `seller`, anything. Each has its own rules. A context with no rules
+presents the whole universe. Adding a context never requires touching the role
+form.
 
 ### How a role gets its context
 
-By default the context is the role's guard: a `web` role is managed in the
-`web` context, an `admin` role in the `admin` context. The form's current
-value wins over the stored one, so changing the guard on the form switches
-the permissions shown immediately (make the guard field `->live()`).
+By default, the context is the role's guard. The form's current value wins
+over the stored one, so changing the guard on the form switches the
+permissions shown immediately.
 
-To map roles differently, bind your own resolver:
+To map roles to contexts differently, for example by a `type` column, bind
+your own resolver in a service provider's `register()` method:
 
 ```php
 use Illuminate\Database\Eloquent\Model;
@@ -254,20 +365,19 @@ final class RoleTypeContextResolver implements ContextResolver
     }
 }
 
-// In a service provider's register() method:
 $this->app->bind(ContextResolver::class, RoleTypeContextResolver::class);
 ```
 
 `$state` is the role form's current data; `$role` is the stored role, or
-`null` while one is being created. Anything you put in the context's
-attributes is available to custom rules.
+`null` while one is being created. Whatever you put in the context's
+attributes is available to [conditions](#conditions) and custom rules.
 
-### Reading a context
+### Reading a catalog
 
 ```php
-$catalog = PermissionPolicies::forContext('web');
-$catalog = PermissionPolicies::forRole($role);          // resolves the context
-$universe = PermissionPolicies::universe();             // before any rule
+$catalog = PermissionPolicies::forContext('web');   // a context by name
+$catalog = PermissionPolicies::forRole($role);       // a role's context
+$universe = PermissionPolicies::universe();          // before any rule
 ```
 
 A `PermissionCatalog` is immutable and never contains an empty group:
@@ -275,60 +385,77 @@ A `PermissionCatalog` is immutable and never contains an empty group:
 ```php
 $catalog->groups(GroupKind::Resource);   // list<PermissionGroup>
 $catalog->group(ServiceResource::class); // ?PermissionGroup
-$catalog->models();                      // models behind the resources
+$catalog->models();                      // the models behind the resources
 $catalog->keys();                        // every permission key
 $catalog->options(GroupKind::Page);      // [key => label]
 $catalog->groupCount(GroupKind::Resource);
 $catalog->permissionCount();
 $catalog->selectedCount($role->permissions->pluck('name'));
-$catalog->intersect($submittedKeys);     // only keys this context manages
+$catalog->intersect($submittedKeys);     // only the keys this context manages
 ```
 
-## Resource rules
+## Resource, model and permission rules
+
+Each example shows the config file, then the same rule in code.
+
+### Resources, pages and widgets
+
+```php
+'hide' => ['resources' => [RoleResource::class], 'pages' => [Settings::class], 'widgets' => [RevenueChart::class]],
+'only' => ['resources' => [ServiceResource::class, OrderResource::class]],
+```
 
 ```php
 PermissionPolicies::context('web')
-    ->hideResources([RoleResource::class, UserResource::class])
-    ->onlyResources([ServiceResource::class, OrderResource::class]) // or an allow-list
-    ->allowResources([ReportResource::class]);                      // re-show a globally hidden one
-
-PermissionPolicies::context('web')
+    ->hideResources([RoleResource::class])
     ->hidePages([Settings::class])
     ->hideWidgets([RevenueChart::class])
-    ->hideKinds([GroupKind::Widget, GroupKind::Custom]);             // whole tabs
+    ->onlyResources([ServiceResource::class, OrderResource::class]);
 ```
 
-`onlyResources()` affects resources only; pages, widgets and custom
-permissions keep their own rules.
+`only.resources` affects resources only; pages, widgets and custom permissions
+keep their own rules. To remove a whole tab, hide its kind:
+`'hide' => ['kinds' => ['widget', 'custom']]`.
 
-## Model rules
+### Models
 
 When several resources manage the same model, target the model:
 
 ```php
-PermissionPolicies::context('web')->hideModels([User::class]);   // every resource of User
-PermissionPolicies::context('web')->onlyModels([Service::class, Order::class]);
-PermissionPolicies::context('support')->allowModels([Ticket::class]);
+'hide' => ['models' => [App\Models\User::class]],   // every resource of User
 ```
 
-## Permission rules
+```php
+PermissionPolicies::context('web')->hideModels([User::class]);
+```
 
-Actions are the policy methods Shield generates permissions from. They are
-matched in any case (`forceDelete`, `ForceDelete` and `force_delete` are the
-same), so rules keep working when you change Shield's key format.
+### Actions and permissions
+
+Actions are the policy methods Shield generates permissions from. They match
+in any case (`forceDelete`, `ForceDelete` and `force_delete` are the same), so
+rules keep working if you change Shield's key format. Action rules apply to
+resources; pages and widgets have a single permission each, so hide them by
+class or kind.
+
+```php
+'hide' => ['actions' => ['forceDelete', 'reorder'], 'permissions' => ['Delete:Order']],
+'only' => ['actions' => ['viewAny', 'view', 'create', 'update']],
+```
 
 ```php
 PermissionPolicies::context('web')
-    ->hideActions(['forceDelete', 'forceDeleteAny', 'reorder'])  // on every resource
-    ->onlyActions(['viewAny', 'view', 'create', 'update'])       // allow-list
-    ->hidePermissions(['Delete:Order'])                          // exact keys
-    ->allowPermissions(['Reorder:Service']);
+    ->hideActions(['forceDelete', 'reorder'])
+    ->hidePermissions(['Delete:Order'])
+    ->onlyActions(['viewAny', 'view', 'create', 'update']);
 ```
 
-Action rules apply to resources. Pages and widgets have a single permission
-each; hide them by class or kind.
+`only.permissions` is the strictest allow-list: nothing of any kind is shown
+except the listed keys.
 
-To combine dimensions, use a `Target`. Every dimension you set must match:
+### Combined targets
+
+To hide one ability on one resource only, combine dimensions with a `Target`.
+Every dimension you set must match:
 
 ```php
 use Syriable\Filament\Plugins\PermissionPolicies\Rules\Target;
@@ -336,6 +463,8 @@ use Syriable\Filament\Plugins\PermissionPolicies\Rules\Target;
 PermissionPolicies::context('seller')
     ->deny(Target::make()->groups([ServiceResource::class])->actions(['delete', 'deleteAny']));
 ```
+
+### Conditions
 
 For anything else, write a condition. It receives the permission, its group
 and the context:
@@ -347,45 +476,42 @@ PermissionPolicies::context('seller')->hideWhen(
 );
 ```
 
-`onlyPermissions([...])` is the strictest allow-list: nothing of any kind is
-shown except the listed keys.
-
 ## Rule precedence
 
 Every rule answers **allow**, **deny** or **abstain** for each permission.
 
-1. **The context decides first.** If the context's rules allow or deny, that
-   is final.
-2. **The global scope decides next,** only when the context abstains.
+1. **The context decides first.** If its rules allow or deny, that is final.
+2. **The global rules decide next,** only when the context abstains.
 3. **Otherwise the permission is shown.**
 
-Inside one scope, **deny wins over allow**. Declaration order never matters.
+Inside one context (or inside the global rules), **deny wins over allow**, and
+declaration order never matters.
 
 | Global | Context | Result |
 |---|---|---|
 | — | — | shown |
-| deny | — | hidden |
-| deny | allow | shown |
-| allow | deny | hidden |
-| — | deny + allow | hidden |
-| allow | deny `forceDelete` + allow `ServiceResource` | `ForceDelete:Service` hidden |
+| hide | — | hidden |
+| hide | allow | shown |
+| allow | hide | hidden |
+| — | hide + allow | hidden |
+| allow | hide `forceDelete` + allow `ServiceResource` | `ForceDelete:Service` hidden |
 
-Allow-lists (`only*`) never *allow*; they deny what they do not list and
-abstain on the rest. So a context's `onlyResources()` narrows what it shows
-but never brings back a permission the global scope hides. To bring one back,
-use an explicit `allow*` rule on the context.
+`only` rules never *allow*: they hide what they do not list and abstain on the
+rest. So a guard's `only.resources` narrows what it shows but never brings back
+something the global rules hide. To bring something back, use `allow` on the
+guard.
 
-Resource, model, action and permission rules are not ranked against each
-other. When you need an exception, target it precisely instead of relying on
-one kind of rule beating another.
+Resource, model, action and permission rules are not ranked against each other.
+When you need an exception, target it precisely instead of relying on one kind
+of rule beating another.
 
-## Filament integration
+## The role form
 
 `HasPermissionPolicies` replaces Shield's `getShieldFormComponents()` and
-`getSelectAllFormComponent()`, so both Shield's own form and a custom form
-that calls these methods render from the catalog of the role being edited:
+`getSelectAllFormComponent()`, so the form renders from the catalog of the role
+being edited:
 
-- one section per presented resource, one list per page/widget/custom tab;
+- one section per presented resource, one list per page, widget and custom tab;
 - tab badges equal the number of presented permissions;
 - a tab with nothing to present is not rendered;
 - "select all" ticks exactly the presented permissions;
@@ -393,54 +519,95 @@ that calls these methods render from the catalog of the role being edited:
 
 ### The guard field
 
-Use the package's guard field so the form stays in line when the guard
-changes: it offers the [configured guards](#from-the-config-file), and on
-change it drops ticks the new context does not present, fills lists that
-appear for the first time from the stored role, and recalculates
-"select all".
+`getGuardFormComponent()` offers the guards from the config file (and rejects
+any other). When the guard changes, it:
 
-```php
-Section::make()->schema([
-    TextInput::make('name')->required(),
-    RoleResource::getGuardFormComponent(),
-    RoleResource::getSelectAllFormComponent(),
-]),
-RoleResource::getShieldFormComponents(),
-```
+- drops ticks the new context does not present;
+- fills lists that appear for the first time from the stored role's permissions;
+- recalculates "select all".
 
-If you build the guard field yourself, make it `->live()` and call the same
-refresh when it changes:
+If you keep your own guard field, make it `->live()` and call the same refresh,
+or "select all" can be left stale after a guard change:
 
 ```php
 Select::make('guard_name')
+    ->options(PermissionPolicies::guards()->options())
     ->live()
     ->afterStateUpdated(fn (Select $component, Get $get, Set $set) => RoleResource::refreshPermissionFormState($component, $get, $set));
 ```
 
-For a roles table, count what a role's context presents rather than every row
-in `role_has_permissions`:
-
-```php
-TextColumn::make('permissions_count')
-    ->state(fn (Role $record): int => RoleResource::countPresentedPermissions($record)),
-```
-
-(Eager load `permissions` on the table query to avoid one query per row.)
-
-To change how a resource section looks, override
-`getPermissionGroupSection(PermissionGroup $group)` on your role resource; the
-checkbox list itself comes from `getPermissionCheckboxList()`.
-
 ### Saving
 
 `ScopesPermissionsOnCreate` and `ScopesPermissionsOnSave` drop every submitted
-key the role's context does not present before Shield syncs the role. As a
-result:
+key the role's context does not present before Shield syncs the role:
 
 - a crafted request cannot attach a hidden permission;
 - a role saved in a narrower context (for example after changing its guard)
   keeps only the permissions that context manages. This is deliberate: the
   form is the full description of the role in its context.
+
+### Customizing the form
+
+Override `getPermissionGroupSection(PermissionGroup $group)` on your role
+resource to change how a resource section looks; the checkbox list comes from
+`getPermissionCheckboxList()`.
+
+## The roles table
+
+`PermissionPolicies::guards()` gives you the configured guards' labels and
+colors, and `countPresentedPermissions()` counts what a role's context
+presents rather than every row in `role_has_permissions`:
+
+```php
+use Syriable\Filament\Plugins\PermissionPolicies\Facades\PermissionPolicies;
+
+public static function configure(Table $table): Table
+{
+    $guards = PermissionPolicies::guards();
+
+    return $table
+        ->modifyQueryUsing(fn (Builder $query) => $query->with('permissions'))
+        ->columns([
+            TextColumn::make('name')->searchable(),
+            TextColumn::make('guard_name')
+                ->badge()
+                ->formatStateUsing(fn (string $state): string => $guards->label($state))
+                ->color(fn (string $state): string => $guards->color($state)),
+            TextColumn::make('permissions_count')
+                ->state(fn (Role $record): string => sprintf(
+                    '%d / %d',
+                    RoleResource::countPresentedPermissions($record),
+                    PermissionPolicies::forRole($record)->permissionCount(),
+                )),
+        ])
+        ->filters([
+            SelectFilter::make('guard_name')->options($guards->options()),
+        ]);
+}
+```
+
+Eager load `permissions` as above to avoid one query per row.
+
+## Multiple guards
+
+A role belongs to exactly one guard. Spatie Laravel Permission only lets a
+model hold roles of its own guard. For every guard you list in the config file:
+
+1. **Define the guard** in `config/auth.php`. The package refuses a guard that
+   is not defined there.
+2. **Give the model its guard.** A model whose roles use a guard other than the
+   default sets it explicitly, for example
+   `protected string $guard_name = 'admin';`.
+3. **Know where permission rows come from.** `shield:generate` creates
+   permission rows for your **panel's** guard. Rows for other guards are
+   created by Shield when you save a role of that guard with those
+   permissions ticked. You do not need to create them yourself.
+4. **Treat role names as per guard.** Spatie allows an `editor` role on `web`
+   and another on `api`. If your form checks names for uniqueness, scope that
+   check to the guard.
+5. **Be careful when changing a role's guard** once it is assigned. Users of
+   the old guard can no longer hold it. Consider disabling the guard field on
+   the edit page for roles that have users.
 
 ## Shield integration
 
@@ -448,15 +615,13 @@ result:
 `FilamentShield::getResources()`, `getPages()`, `getWidgets()` and
 `getCustomPermissions()`. Everything Shield is configured with is honoured:
 excluded resources, pages and widgets, per-resource policy methods
-(`resources.manage`), key case and separator, custom permissions, and
-discovery across panels.
-
-The rest of the package never reads Shield directly. To take permissions from
-somewhere else, bind another source (see below).
+(`resources.manage`), key case and separator, custom permissions, tab
+switches, and discovery across panels. Shield's core is never forked or
+patched, and only this one class reads Shield's discovery output.
 
 ## Extending the package
 
-**A rule class.** Implement one method; return `Decision::Abstain` for
+**A rule class.** Implement one method, and return `Decision::Abstain` for
 permissions the rule is not about:
 
 ```php
@@ -467,7 +632,7 @@ final readonly class HideSensitiveModels implements PermissionRule
 {
     public function decide(PermissionDefinition $permission, PermissionGroup $group, PermissionContext $context): Decision
     {
-        return is_a($group->model, Sensitive::class, true) ? Decision::Deny : Decision::Abstain;
+        return is_a((string) $group->model, Sensitive::class, true) ? Decision::Deny : Decision::Abstain;
     }
 }
 
@@ -500,7 +665,7 @@ $this->app->bind(PermissionSource::class, ApplicationPermissionSource::class);
 Groups and permissions carry a `meta` array for anything your UI needs.
 
 **A different context mapping.** Bind a `ContextResolver` (see
-[Contexts](#how-a-role-gets-its-context)).
+[How a role gets its context](#how-a-role-gets-its-context)).
 
 ## Visibility is not authorization
 
@@ -508,13 +673,42 @@ This package decides what a role form **presents**. It does not register a
 gate, a policy or a `before` callback, and it never grants anything.
 
 - A hidden permission still exists if Shield generated it.
-- A role that somehow holds a hidden permission is still authorized by it
-  until the role is saved; your policies decide what it means.
+- A role that already holds a hidden permission keeps it, and is authorized
+  by it, until the role is saved; your policies decide what it means.
 - A shown permission is only a checkbox.
 
 Keep authorization in your policies. For example, a member role holding
 `Update:User` should still be refused by a `UserPolicy` that only honours
 administrators.
+
+## Troubleshooting
+
+**The Roles page lists no permissions, or a resource is missing.**
+Shield has not generated them. Run `php artisan shield:generate --all --panel=<id>`
+and check Shield's `resources.exclude`, `pages.exclude` and `widgets.exclude`
+settings.
+
+**`InvalidPolicyConfiguration` is thrown on every request.**
+The config file has a typo. The message names the exact path, for example
+`filament-permission-policies.guards.web.hide.resource`. Fix it, then re-run
+`config:cache` if you cache the config.
+
+**"Guard [api] is configured for roles but is not defined in config/auth.php".**
+Add the guard to `config/auth.php`, or remove it from the package's config.
+
+**"Select all" does not match the ticks after changing the guard.**
+The guard field is not the package's. Use `getGuardFormComponent()`, or call
+`refreshPermissionFormState()` from your field's `afterStateUpdated()` (see
+[The guard field](#the-guard-field)).
+
+**A permission is hidden on the form but a user still has it.**
+Expected: hiding is not revoking (see
+[Visibility is not authorization](#visibility-is-not-authorization)). Saving
+the role removes permissions its context does not present.
+
+**The roles table count differs from the number of rows in the database.**
+`countPresentedPermissions()` counts only what the role's context presents,
+which is what the form shows.
 
 ## Testing
 
@@ -537,8 +731,9 @@ app()->instance(PermissionSource::class, new InMemoryPermissionSource($catalog))
 expect(PermissionPolicies::forContext('web')->contains('ForceDelete:Service'))->toBeFalse();
 ```
 
-See [docs/architecture.md](docs/architecture.md) for the design, the
-behaviour this package was extracted from, and the review notes.
+See [docs/architecture.md](docs/architecture.md) for the design, the behaviour
+this package was extracted from, and the review notes, and
+[CHANGELOG.md](CHANGELOG.md) for what changed.
 
 ## License
 

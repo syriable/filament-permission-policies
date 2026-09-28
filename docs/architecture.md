@@ -130,6 +130,8 @@ role state. The UI never filters.
 | `PolicyEvaluator` | Precedence between scopes; filters a catalog. |
 | `PermissionManager` | The facade target: universe, forContext, forRole, context(), global(). |
 | `GuardContextResolver` | Default resolver: context name = role guard. |
+| `RoleGuards` | The configured guards: names, labels, colors; declares their rules. |
+| `Config\PolicyConfigurator` | Turns a config rule set into validated policy rules. |
 | `Sources\InMemoryPermissionSource` | A fixed universe for tests or non-Shield permissions. |
 | `Shield\ShieldPermissionSource` | Translates Shield's output into a catalog. |
 | `Filament\Concerns\HasPermissionPolicies` | Renders Shield's role form from the catalog. |
@@ -154,6 +156,15 @@ model is not more specific than an action or the reverse, so ranking them
 would be arbitrary. To express "hide delete everywhere except on services",
 target the exception directly (`Target::make()->groups([...])->actions([...])`)
 or use `hideWhen()`.
+
+### Configuration
+
+`config/filament-permission-policies.php` lists the guards roles can be
+created for (label, color) and each guard's `hide` / `only` / `allow`
+sections, plus a `global` section. `RoleGuards` reads it; `PolicyConfigurator`
+turns each section into rules on the registry the first time the registry is
+resolved, validating as it reads (unknown keys, kinds, guards or classes
+throw). Rules declared in code are added on top.
 
 ### Extension points
 
