@@ -25,6 +25,7 @@ final class PermissionManager
         private readonly PolicyRegistry $registry,
         private readonly PolicyEvaluator $evaluator,
         private readonly ContextResolver $resolver,
+        private readonly RoleGuards $guards,
     ) {}
 
     /**
@@ -71,6 +72,14 @@ final class PermissionManager
     public function context(string $name): PermissionPolicy
     {
         return $this->registry->context($name);
+    }
+
+    /**
+     * The guards roles can be created for, with their labels and colors.
+     */
+    public function guards(): RoleGuards
+    {
+        return $this->guards;
     }
 
     public function registry(): PolicyRegistry

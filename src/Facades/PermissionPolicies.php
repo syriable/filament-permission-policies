@@ -14,6 +14,7 @@ use Syriable\Filament\Plugins\PermissionPolicies\PermissionManager;
  * @method static \Syriable\Filament\Plugins\PermissionPolicies\Data\PermissionContext resolveContext(array<string, mixed> $state = [], ?\Illuminate\Database\Eloquent\Model $role = null)
  * @method static \Syriable\Filament\Plugins\PermissionPolicies\PermissionPolicy global()
  * @method static \Syriable\Filament\Plugins\PermissionPolicies\PermissionPolicy context(string $name)
+ * @method static \Syriable\Filament\Plugins\PermissionPolicies\RoleGuards guards()
  * @method static \Syriable\Filament\Plugins\PermissionPolicies\PolicyRegistry registry()
  *
  * @see PermissionManager

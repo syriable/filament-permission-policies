@@ -134,6 +134,22 @@ final class PermissionPolicy
     }
 
     /**
+     * @param  list<class-string>  $pages
+     */
+    public function allowPages(array $pages): self
+    {
+        return $this->allow(Target::make()->kinds([GroupKind::Page])->groups($pages));
+    }
+
+    /**
+     * @param  list<class-string>  $widgets
+     */
+    public function allowWidgets(array $widgets): self
+    {
+        return $this->allow(Target::make()->kinds([GroupKind::Widget])->groups($widgets));
+    }
+
+    /**
      * @param  list<class-string>  $models
      */
     public function allowModels(array $models): self

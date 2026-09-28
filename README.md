@@ -119,8 +119,78 @@ Until you declare a rule, every role sees exactly what Shield generates.
 
 ## Configuration
 
-Rules are declared in code, usually in a service provider's `boot()` method,
-with the `PermissionPolicies` facade:
+### From the config file
+
+Publish the config file:
+
+```bash
+php artisan vendor:publish --tag="filament-permission-policies-config"
+```
+
+List the guards roles can be created for, and what each one's role form
+hides. Nothing else is needed: forms, tables and counts follow the file.
+
+```php
+// config/filament-permission-policies.php
+return [
+    'guards' => [
+        'admin' => [
+            'label' => 'roles.guards.admin', // translation key or plain text
+            'color' => 'primary',
+        ],
+        'web' => [
+            'label' => 'Member',
+            'color' => 'gray',
+            'hide' => [
+                'resources' => [RoleResource::class],
+                'actions' => ['restore', 'restoreAny', 'forceDelete', 'forceDeleteAny', 'replicate', 'reorder'],
+            ],
+        ],
+        'api' => [
+            'label' => 'API',
+            'color' => 'info',
+            'hide' => ['kinds' => ['page', 'widget']],
+            'only' => ['actions' => ['viewAny', 'view', 'create', 'update', 'delete']],
+        ],
+    ],
+
+    'global' => [
+        'hide' => ['models' => [AuditLog::class]],
+    ],
+];
+```
+
+| Section | Rule types |
+|---|---|
+| `hide` | `resources`, `pages`, `widgets`, `models`, `actions`, `permissions`, `kinds` |
+| `only` | `resources`, `models`, `actions`, `permissions` |
+| `allow` | `resources`, `pages`, `widgets`, `models`, `actions`, `permissions` |
+
+Every guard key must exist in `config/auth.php`, class names must exist, and an
+unknown section or rule type throws `InvalidPolicyConfiguration`: a typo never
+silently shows what was meant to be hidden. An empty list is ignored. With no
+guards configured, every guard in `config/auth.php` is offered with no rules.
+
+The configured guards drive the role form and table:
+
+```php
+$guards = PermissionPolicies::guards();
+
+Select::make('guard_name')->options($guards->options())->live();
+
+TextColumn::make('guard_name')
+    ->badge()
+    ->formatStateUsing(fn (string $state): string => $guards->label($state))
+    ->color(fn (string $state): string => $guards->color($state));
+
+SelectFilter::make('guard_name')->options($guards->options());
+```
+
+### From code
+
+Rules can also be declared in code, usually in a service provider's `boot()`
+method, with the `PermissionPolicies` facade. Code rules are added on top of
+the config file's:
 
 ```php
 use Syriable\Filament\Plugins\PermissionPolicies\Facades\PermissionPolicies;
